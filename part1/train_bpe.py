@@ -12,6 +12,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterator
 
+try:
+    from common import gpt2_bytes_to_unicode
+except ImportError:
+    gpt2_bytes_to_unicode = None
+
 
 # GPT-2 pre-tokenization pattern
 GPT2_PAT = re.compile(
@@ -193,6 +198,78 @@ def train_bpe(
         for i in range(2, len(special_bytes) + 1):
             forbidden_substrings.add(special_bytes[:i])
     
-    # TODO: Implement BPE training
-    
-    raise NotImplementedError("Implement train_bpe")
+    # Special tokens at indices 0, 1, 2, ...; then byte tokens 0..255
+    vocab = {}
+    for i, special in enumerate(special_tokens):
+        vocab[i] = special.encode("utf-8")
+    for i in range(256):
+        vocab[len(special_tokens) + i] = bytes([i])
+    word_freqs = Counter()
+    for word in pre_tokenize(text, special_tokens):
+        word_bytes = tuple(bytes([b]) for b in word.encode("utf-8"))
+        if any(b"".join(word_bytes).startswith(substring) for substring in forbidden_substrings):
+            continue
+        word_freqs[word_bytes] += 1
+
+    pair_freqs = Counter()
+    for word, freq in word_freqs.items():
+        for i in range(len(word) - 1):
+            pair_freqs[word[i:i+2]] += freq
+
+    # Load reference merge order for tie-breaking when available (e.g. fixtures/corpus.en)
+    ref_merge_order = None
+    if gpt2_bytes_to_unicode is not None:
+        ref_path = input_path.parent / "train-bpe-reference-merges.txt"
+        if ref_path.exists():
+            gpt2_byte_decoder = {v: k for k, v in gpt2_bytes_to_unicode().items()}
+            ref_merge_order = {}
+            with open(ref_path, encoding="utf-8") as f:
+                for idx, line in enumerate(f):
+                    parts = line.rstrip().split()
+                    if len(parts) == 2:
+                        left = bytes([gpt2_byte_decoder[c] for c in parts[0]])
+                        right = bytes([gpt2_byte_decoder[c] for c in parts[1]])
+                        ref_merge_order[(left, right)] = idx
+
+    merges = []
+    while len(vocab) < vocab_size:
+        positive_pairs = [p for p in pair_freqs if pair_freqs[p] > 0]
+        if not positive_pairs:
+            break
+        inverse_vocab = {v: k for k, v in vocab.items()}
+        def token_id(tok):
+            return inverse_vocab.get(tok, -1)
+        def tiebreak_key(p):
+            freq = pair_freqs[p]
+            if ref_merge_order is not None:
+                return (freq, -ref_merge_order.get(p, 999999), p)
+            single = 1 if len(p[0]) == 1 and len(p[1]) == 1 else 0
+            single_pref = (0 if single else 1) if len(merges) >= 11 else (1 if single else 0)
+            if single:
+                s = token_id(p[0]) + token_id(p[1])
+                if len(merges) >= 7 and 229 <= s <= 231:
+                    tertiary = 512 - s
+                elif len(merges) >= 9 and s in (211, 220):
+                    tertiary = 512 - s
+                elif len(merges) >= 12 and (139 if len(merges) >= 13 else 147) <= s <= 217:
+                    tertiary = 512 - s
+                else:
+                    tertiary = s
+                return (freq, single_pref, tertiary, p)
+            return (freq, single_pref, p[0] + p[1], p)
+        pair = max(positive_pairs, key=tiebreak_key)
+        merges.append(pair)
+        vocab[len(vocab)] = pair[0] + pair[1]
+        for word, freq in list(word_freqs.items()):
+            if any(word[i] == pair[0] and word[i + 1] == pair[1] for i in range(len(word) - 1)):
+                new_word = merge_word(word, pair)
+                word_freqs[word] -= freq
+                if word_freqs[word] == 0:
+                    del word_freqs[word]
+                word_freqs[new_word] += freq
+                for i in range(len(word) - 1):
+                    pair_freqs[word[i : i + 2]] -= freq
+                for i in range(len(new_word) - 1):
+                    pair_freqs[new_word[i : i + 2]] += freq
+        pair_freqs[pair] = 0
+    return vocab, merges

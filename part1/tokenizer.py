@@ -60,6 +60,21 @@ class Tokenizer:
             pairs.add((tokens[i], tokens[i + 1]))
         return pairs
 
+    def _merge_pair(self, tokens: list[bytes], pair: tuple[bytes, bytes]) -> list[bytes]:
+        """Replace all occurrences of (left, right) in tokens with merged token left+right."""
+        left, right = pair
+        merged = left + right
+        result = []
+        i = 0
+        while i < len(tokens):
+            if i < len(tokens) - 1 and tokens[i] == left and tokens[i + 1] == right:
+                result.append(merged)
+                i += 2
+            else:
+                result.append(tokens[i])
+                i += 1
+        return result
+
     def _bpe(self, token_bytes: bytes) -> list[bytes]:
         """
         Apply BPE to a single token (sequence of bytes).
@@ -80,12 +95,25 @@ class Tokenizer:
         
         if len(tokens) <= 1:
             return tokens
-        
-        # TODO: Implement BPE algorithm
-        # Return tokens
-        
-        raise NotImplementedError("Implement _bpe")
 
+        while True:
+            pairs = self._get_pairs(tokens)
+            if not pairs:
+                break
+            # Only consider pairs that are valid merges (merged form is in vocab)
+            valid_pairs = [
+                p for p in pairs
+                if (p[0] + p[1]) in self.inverse_vocab
+            ]
+            if not valid_pairs:
+                break
+            # Lower token ID = higher priority (merge first)
+            pair = min(valid_pairs, key=lambda p: self.inverse_vocab[p[0] + p[1]])
+            tokens = self._merge_pair(tokens, pair)
+            if len(tokens) <= 1:
+                break
+        return tokens
+    
     def _split_with_special_tokens(self, text: str) -> list[tuple[str, bool]]:
         """
         Split text by special tokens, preserving them.
@@ -139,9 +167,11 @@ class Tokenizer:
             return []
         
         ids = []
-        # TODO: Implement encoding
-        
-        raise NotImplementedError("Implement _encode_chunk")
+        tokens = self.pat.findall(text)
+        for token in tokens:
+            for bpe_token in self._bpe(token.encode("utf-8")):
+                ids.append(self.inverse_vocab[bpe_token])
+        return ids
 
     def encode(self, text: str) -> list[int]:
         """
@@ -189,9 +219,7 @@ class Tokenizer:
         if not ids:
             return ""
         
-        # TODO: Implement decoding
-        
-        raise NotImplementedError("Implement decode")
+        return b"".join(self.vocab[id] for id in ids).decode("utf-8", errors="replace")
 
     def encode_iterable(self, iterable: Iterator[str]) -> Iterator[int]:
         """
