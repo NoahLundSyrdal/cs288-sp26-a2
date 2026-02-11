@@ -76,7 +76,7 @@ def pre_tokenize(text: str, special_tokens: list[str] | None = None) -> Iterator
     for part in parts:
         if part in special_tokens:
             # Special token - yield as-is, but it won't be BPE-encoded
-            # (we skip special tokens in the word frequency counting)
+            # skip special tokens in the word frequency counting
             continue
         elif part:
             # Regular text - apply GPT-2 pre-tokenization
@@ -191,7 +191,7 @@ def train_bpe(
     with open(input_path, encoding="utf-8") as f:
         text = f.read()
     
-    # Build set of "forbidden" substrings from special tokens
+    # Build set of forbidden substrings from special tokens
     forbidden_substrings = set()
     for special in special_tokens:
         special_bytes = special.encode("utf-8")
