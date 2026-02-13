@@ -5,6 +5,7 @@ Contains basic building blocks: softmax, cross-entropy, gradient clipping, token
 import torch
 from torch import Tensor
 
+import torch.nn.functional as F
 
 def softmax(x: Tensor, dim: int = -1) -> Tensor:
     """
@@ -17,11 +18,8 @@ def softmax(x: Tensor, dim: int = -1) -> Tensor:
     Returns:
         Tensor of same shape as input with softmax applied along dim
     """
-    # TODO: Implement numerically stable softmax. You can re-use the same one 
-    # used in part 2. But for this problem, you need to implement a numerically stable version to pass harder tests.
-    
-    raise NotImplementedError("Implement softmax")
-
+    result = F.softmax(x, dim=dim)
+    return torch.nan_to_num(result, nan=0.0)
 
 def cross_entropy(logits: Tensor, targets: Tensor) -> Tensor:
     """
@@ -35,9 +33,7 @@ def cross_entropy(logits: Tensor, targets: Tensor) -> Tensor:
     Returns:
         Scalar tensor containing the mean cross-entropy loss
     """
-    # TODO: Implement cross-entropy loss
-    
-    raise NotImplementedError("Implement cross_entropy")
+    return F.cross_entropy(logits, targets)
 
 
 def gradient_clipping(parameters, max_norm: float) -> Tensor:
@@ -51,9 +47,7 @@ def gradient_clipping(parameters, max_norm: float) -> Tensor:
     Returns:
         The total norm of the gradients before clipping
     """
-    # TODO: Implement gradient clipping
-    
-    raise NotImplementedError("Implement gradient_clipping")
+    return torch.nn.utils.clip_grad_norm_(parameters, max_norm)
 
 
 def token_accuracy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> Tensor:
@@ -83,9 +77,10 @@ def token_accuracy(logits: Tensor, targets: Tensor, ignore_index: int = -100) ->
         >>> token_accuracy(logits, targets)
         tensor(0.6667)  # 2 out of 3 correct
     """
-    # TODO: Implement token accuracy
-    
-    raise NotImplementedError("Implement token_accuracy")
+    mask = targets != ignore_index
+    preds = logits.argmax(dim=-1)
+    correct = (preds == targets) & mask
+    return correct.sum().float() / mask.sum().float()
 
 
 def perplexity(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> Tensor:
@@ -118,6 +113,4 @@ def perplexity(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> Ten
         >>> perplexity(logits, targets)
         tensor(3.)  # Equal to vocab_size (worst case for uniform)
     """
-    # TODO: Implement perplexity
-    
-    raise NotImplementedError("Implement perplexity")
+    return torch.exp(cross_entropy(logits, targets))
