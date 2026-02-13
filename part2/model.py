@@ -7,7 +7,6 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -92,7 +91,7 @@ class Embedding(nn.Module):
         Returns:
             Tensor of embeddings of shape (batch, seq_len, d_model)
         """
-        return F.embedding(token_ids, self.weight)
+        return self.weight[token_ids]
 
 
 # =============================================================================
@@ -148,6 +147,9 @@ def softmax(x: Tensor, dim: int = -1) -> Tensor:
     """
     Compute softmax along the specified dimension.
     
+    Uses the numerically stable formula:
+        softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
+    
     Args:
         x: Input tensor of any shape
         dim: Dimension along which to compute softmax (default: -1)
@@ -155,7 +157,12 @@ def softmax(x: Tensor, dim: int = -1) -> Tensor:
     Returns:
         Tensor of same shape as input with softmax applied along dim
     """
-    result = F.softmax(x, dim=dim)
+    x_max = x.max(dim=dim, keepdim=True).values
+    x_shifted = x - x_max
+    exp_x = torch.exp(x_shifted)
+    sum_exp_x = exp_x.sum(dim=dim, keepdim=True)
+    result = exp_x / sum_exp_x
+    # Handle case where all values are -inf (fully masked rows in attention)
     return torch.nan_to_num(result, nan=0.0)
 
 # =============================================================================
